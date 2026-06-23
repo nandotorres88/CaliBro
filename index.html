@@ -241,8 +241,7 @@ function psaCentering(pF, pB) {
     let gb;
     if (pB <= 75) gb = 10;
     else if (pB <= 90) gb = 9;
-    else if (pB <= 92.5) gb = 7;
-    else gb = 5;
+    else gb = 6;
     g = Math.min(g, gb);
   }
   return g;
@@ -262,8 +261,7 @@ function bgsCentering(pWorst, pBest, pB) {
   else s = 4;
   if (pB != null) {
     let c;
-    if (pB <= 55) c = 10;
-    else if (pB <= 60) c = 9.5;
+    if (pB <= 60) c = 10;
     else if (pB <= 70) c = 9;
     else if (pB <= 80) c = 8;
     else if (pB <= 90) c = 7;
@@ -564,6 +562,40 @@ function Calibro() {
   const stageEnd = () => setLp((p) => ({ ...p, active: false }));
 
   const setLine = (k, v) => setLinesByFace((p) => ({ ...p, [face]: { ...p[face], [k]: v } }));
+  const nudge = (k, delta) => setLine(k, Math.max(0, Math.min(1, (linesByFace[face][k] ?? 0) + delta)));
+  const snapEdges = () => {
+    const url = imgs[face];
+    if (!url) return;
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const maxd = 1200, sc = Math.min(1, maxd / Math.max(im.naturalWidth, im.naturalHeight));
+        const W = Math.round(im.naturalWidth * sc), H = Math.round(im.naturalHeight * sc);
+        const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+        const ctx = cv.getContext("2d"); ctx.drawImage(im, 0, 0, W, H);
+        const d = ctx.getImageData(0, 0, W, H).data;
+        const lum = (x, y) => { const i = (y * W + x) * 4; return 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; };
+        const L = linesByFace[face];
+        const yA = Math.floor(H * 0.28), yB = Math.floor(H * 0.72);
+        const xA = Math.floor(W * 0.28), xB = Math.floor(W * 0.72);
+        const bestX = (f) => {
+          const x0 = Math.max(2, Math.floor((f - 0.06) * W)), x1 = Math.min(W - 3, Math.ceil((f + 0.06) * W));
+          let bx = Math.round(f * W), bg = -1;
+          for (let x = x0; x <= x1; x++) { let g = 0; for (let y = yA; y < yB; y += 3) g += Math.abs(lum(x + 1, y) - lum(x - 1, y)); if (g > bg) { bg = g; bx = x; } }
+          return bx / W;
+        };
+        const bestY = (f) => {
+          const y0 = Math.max(2, Math.floor((f - 0.06) * H)), y1 = Math.min(H - 3, Math.ceil((f + 0.06) * H));
+          let by = Math.round(f * H), bg = -1;
+          for (let y = y0; y <= y1; y++) { let g = 0; for (let x = xA; x < xB; x += 3) g += Math.abs(lum(x, y + 1) - lum(x, y - 1)); if (g > bg) { bg = g; by = y; } }
+          return by / H;
+        };
+        const next = { ...L, ol: bestX(L.ol), il: bestX(L.il), ir: bestX(L.ir), or: bestX(L.or), ot: bestY(L.ot), it: bestY(L.it), ib: bestY(L.ib), ob: bestY(L.ob) };
+        setLinesByFace((p) => ({ ...p, [face]: next }));
+      } catch (e) { /* snap non riuscito */ }
+    };
+    im.src = url;
+  };
   const setCardKind = (k) => {
     setCardType((p) => ({ ...p, [face]: k }));
     const d = TYPE_LINES[k];
@@ -962,6 +994,38 @@ function Calibro() {
             <div className="cal-ro"><div className="k">{mode === "foto" ? (face === "front" ? "Fronte · " : "Retro · ") : ""}Sinistra / Destra</div><div className="v">{curR.lr != null ? fmtRatio(curR.lr) : "—"}</div></div>
             <div className="cal-ro"><div className="k">{mode === "foto" ? (face === "front" ? "Fronte · " : "Retro · ") : ""}Alto / Basso</div><div className="v">{curR.tb != null ? fmtRatio(curR.tb) : "—"}</div></div>
           </div>
+          {mode === "foto" && curImg && !curErr && (
+            <div className="cal-ro" style={{ marginTop: 10 }}>
+              <div className="k" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                Regolazione fine & aggancio bordi
+                <button className="cal-btn" style={{ padding: "4px 9px", fontSize: 12, borderColor: "var(--cy)", color: "var(--cy)" }} onClick={snapEdges}><Crosshair size={13} /> Aggancia ai bordi</button>
+              </div>
+              <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 6, color: "var(--txt)" }}>
+                Sx/Dx {curR.lr != null ? fmtRatio(curR.lr) : "—"}
+                {curR.lr != null && (curLines.il - curLines.ol).toFixed(4) !== (curLines.or - curLines.ir).toFixed(4) ? ` · più stretto a ${(curLines.il - curLines.ol) < (curLines.or - curLines.ir) ? "sx" : "dx"}` : ""}
+                {"  ·  "}Alto/Basso {curR.tb != null ? fmtRatio(curR.tb) : "—"}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 8 }}>
+                {[{ l: "Sx est", k: "ol" }, { l: "Sx int", k: "il" }, { l: "Dx int", k: "ir" }, { l: "Dx est", k: "or" }].map((s) => (
+                  <div key={s.k} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <button className="cal-btn" style={{ padding: "3px 8px", fontSize: 14 }} onClick={() => nudge(s.k, -0.002)}>◀</button>
+                    <span style={{ fontSize: 10.5, fontFamily: "'Space Mono',monospace", minWidth: 40, textAlign: "center", color: "var(--mut)" }}>{s.l}</span>
+                    <button className="cal-btn" style={{ padding: "3px 8px", fontSize: 14 }} onClick={() => nudge(s.k, 0.002)}>▶</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 6 }}>
+                {[{ l: "Alto est", k: "ot" }, { l: "Alto int", k: "it" }, { l: "Basso int", k: "ib" }, { l: "Basso est", k: "ob" }].map((s) => (
+                  <div key={s.k} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <button className="cal-btn" style={{ padding: "3px 8px", fontSize: 14 }} onClick={() => nudge(s.k, -0.002)}>◀</button>
+                    <span style={{ fontSize: 10.5, fontFamily: "'Space Mono',monospace", minWidth: 40, textAlign: "center", color: "var(--mut)" }}>{s.l}</span>
+                    <button className="cal-btn" style={{ padding: "3px 8px", fontSize: 14 }} onClick={() => nudge(s.k, 0.002)}>▶</button>
+                  </div>
+                ))}
+              </div>
+              <div className="cal-mini" style={{ marginTop: 6 }}>"Aggancia ai bordi" rifinisce i crocini sullo spigolo più vicino (cerca entro un piccolo intorno, non salta lontano); poi usa ◀▶ per la precisione al pixel. Funziona meglio su foto raddrizzata.</div>
+            </div>
+          )}
           {/* voto automatico da centratura */}
           <div className="cal-ro" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Crosshair size={16} style={{ color: "var(--cy)", flex: "none" }} />
@@ -1086,7 +1150,7 @@ function Calibro() {
 
         {/* note metodologiche */}
         <div className="cal-note">
-          <b>Soglie usate.</b> PSA — fronte: 10 ≤ 55/45, 9 ≤ 60/40, 8 ≤ 65/35, 7 ≤ 70/30 (il 10 è sceso da 60/40 a 55/45 a inizio 2025); retro: 75/25 per il 10, 90/10 per 9–7. Il grado PSA è limitato dal fattore più debole tra centratura, angoli, bordi e superficie. BGS — subgrade centratura fronte: 10 ≈ 50/50, 9.5 ≤ 55/45 con un asse quasi perfetto, 9 = 55/45 su entrambi, 8 = 60/40; il grado finale non supera di norma il subgrade più basso +0.5, e il Black Label richiede quattro 10. PSA e BGS non pubblicano le formule esatte di combinazione: i gradi finali sono stime di pre-screening, non un esito garantito. Angoli, bordi e superficie sono un'autovalutazione guidata e dipendono dalla tua ispezione.
+          <b>Soglie usate.</b> PSA — fronte: 10 ≤ 55/45, 9 ≤ 60/40, 8 ≤ 65/35, 7 ≤ 70/30 (il 10 è sceso da 60/40 a 55/45 a inizio 2025); retro: 75/25 per il 10, 90/10 per 9–7. Il grado PSA è limitato dal fattore più debole tra centratura, angoli, bordi e superficie. BGS — subgrade centratura fronte (scala ufficiale Beckett): 10 = 50/50, 9.5 = 50/50 su un asse e 55/45 sull'altro, 9 = 55/45 su entrambi, 8 = 60/40, 7 = 65/35; il retro è più tollerante (60/40 o meglio non abbassa il voto). Il grado finale non supera di norma il subgrade più basso +0.5, e il Black Label richiede quattro 10. PSA e BGS non pubblicano le formule esatte di combinazione: i gradi finali sono stime di pre-screening, non un esito garantito. Angoli, bordi e superficie sono un'autovalutazione guidata e dipendono dalla tua ispezione.
         </div>
       </div>
     </div>
