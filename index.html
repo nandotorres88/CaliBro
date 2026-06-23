@@ -541,13 +541,21 @@ function Calibro() {
       const R_ = analyze(x1 - strip, y0, x1, y1);
       const T_ = analyze(x0, y0, x1, y0 + strip);
       const B_ = analyze(x0, y1 - strip, x1, y1);
+      // angoli: i due segmenti di bordo che si incontrano allo spigolo
+      const cn = Math.max(strip * 2, Math.round(Math.min(cardW, cardH) * 0.14));
+      const comb = (a, b) => ({ bright: a.bright + b.bright, total: a.total + b.total });
+      const cTL = comb(analyze(x0, y0, x0 + cn, y0 + strip), analyze(x0, y0, x0 + strip, y0 + cn));
+      const cTR = comb(analyze(x1 - cn, y0, x1, y0 + strip), analyze(x1 - strip, y0, x1, y0 + cn));
+      const cBL = comb(analyze(x0, y1 - strip, x0 + cn, y1), analyze(x0, y1 - cn, x0 + strip, y1));
+      const cBR = comb(analyze(x1 - cn, y1 - strip, x1, y1), analyze(x1 - strip, y1 - cn, x1, y1));
       const tb = L_.bright + R_.bright + T_.bright + B_.bright;
       const tp = L_.total + R_.total + T_.total + B_.total;
       const pct = tp ? (tb / tp) * 100 : 0;
       const ps = (a) => (a.total ? (a.bright / a.total) * 100 : 0);
-      let g = 10;
-      if (pct > 10) g = 6; else if (pct > 5) g = 7; else if (pct > 2) g = 8; else if (pct > 0.6) g = 9; else g = 10;
-      setWhiteResult({ pct, g, sides: { sx: ps(L_), dx: ps(R_), alto: ps(T_), basso: ps(B_) } });
+      const bucket = (p) => (p > 10 ? 6 : p > 5 ? 7 : p > 2 ? 8 : p > 0.6 ? 9 : 10);
+      const corners = { tl: ps(cTL), tr: ps(cTR), bl: ps(cBL), br: ps(cBR) };
+      const worstC = Math.max(corners.tl, corners.tr, corners.bl, corners.br);
+      setWhiteResult({ pct, g: bucket(pct), sides: { sx: ps(L_), dx: ps(R_), alto: ps(T_), basso: ps(B_) }, corners, worstC, gCorner: bucket(worstC) });
     };
     im.onerror = () => setWhiteResult({ error: true });
     im.src = src;
@@ -954,13 +962,21 @@ function Calibro() {
                   {whiteResult && whiteResult.error && <div className="cal-mini" style={{ color: "var(--yl)" }}>Analisi non riuscita. Carica e raddrizza prima la foto, e posiziona i crocini sul bordo.</div>}
                   {whiteResult && whiteResult.sides && (
                     <div className="cal-ro" style={{ marginTop: 8 }}>
-                      <div className="k">Whitening sul bordo (indicativo)</div>
+                      <div className="k">Whitening rilevato (indicativo)</div>
                       <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 4, color: "var(--txt)" }}>
-                        sx {whiteResult.sides.sx.toFixed(1)}% · dx {whiteResult.sides.dx.toFixed(1)}% · alto {whiteResult.sides.alto.toFixed(1)}% · basso {whiteResult.sides.basso.toFixed(1)}%
+                        Bordi — sx {whiteResult.sides.sx.toFixed(1)}% · dx {whiteResult.sides.dx.toFixed(1)}% · alto {whiteResult.sides.alto.toFixed(1)}% · basso {whiteResult.sides.basso.toFixed(1)}%
                       </div>
-                      <div style={{ fontSize: 13, marginTop: 6 }}>Media {whiteResult.pct.toFixed(1)}% → Bordi suggerito <b style={{ color: "var(--cy)" }}>{whiteResult.g}</b></div>
-                      <button className="cal-btn" style={{ marginTop: 8, padding: "5px 10px", fontSize: 12 }} onClick={() => setCond((p) => ({ ...p, edges: whiteResult.g }))}>Applica {whiteResult.g} a Bordi</button>
-                      <div className="cal-mini" style={{ marginTop: 6 }}>Funziona sui bordi colorati (retro blu, cornici scure). Posiziona prima i crocini sul bordo esterno e raddrizza la foto; riflessi e glare possono falsare la stima.</div>
+                      {whiteResult.corners && (
+                        <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 3, color: "var(--txt)" }}>
+                          Angoli — alto-sx {whiteResult.corners.tl.toFixed(1)}% · alto-dx {whiteResult.corners.tr.toFixed(1)}% · basso-sx {whiteResult.corners.bl.toFixed(1)}% · basso-dx {whiteResult.corners.br.toFixed(1)}%
+                        </div>
+                      )}
+                      <div style={{ fontSize: 13, marginTop: 6 }}>Bordi suggerito <b style={{ color: "var(--cy)" }}>{whiteResult.g}</b>{whiteResult.gCorner != null ? <> · Angoli suggerito <b style={{ color: "var(--cy)" }}>{whiteResult.gCorner}</b></> : null}</div>
+                      <div className="cal-row" style={{ marginTop: 8 }}>
+                        <button className="cal-btn" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => setCond((p) => ({ ...p, edges: whiteResult.g }))}>Applica {whiteResult.g} a Bordi</button>
+                        {whiteResult.gCorner != null && <button className="cal-btn" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => setCond((p) => ({ ...p, corners: whiteResult.gCorner }))}>Applica {whiteResult.gCorner} a Angoli</button>}
+                      </div>
+                      <div className="cal-mini" style={{ marginTop: 6 }}>Rileva il whitening sui bordi colorati (retro blu, cornici scure) e lo scompone per lato e per angolo. Posiziona i crocini sul bordo esterno e raddrizza la foto; riflessi e glare possono falsare la stima. Graffi, print line e arrotondamento angoli non sono rilevabili da foto: quelli restano da ispezionare a mano.</div>
                     </div>
                   )}
                 </>
