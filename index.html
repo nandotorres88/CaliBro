@@ -638,21 +638,30 @@ function Calibro() {
 
   /* --- centratura calcolata --- */
   const cent = useMemo(() => {
-    const fromLines = (L) => ({ lr: share(L.il - L.ol, L.or - L.ir), tb: share(L.it - L.ot, L.ob - L.ib) });
-    let lrF = 50, tbF = 50, lrB = null, tbB = null;
+    const eps = 0.004;
+    const axes = (L) => {
+      const lw = L.il - L.ol, rw = L.or - L.ir, tw = L.it - L.ot, bw = L.ob - L.ib;
+      return {
+        lr: lw <= eps || rw <= eps ? null : share(lw, rw),
+        tb: tw <= eps || bw <= eps ? null : share(tw, bw),
+      };
+    };
+    let lrF = 50, tbF = 50, lrB = null, tbB = null, warn = false;
     if (mode === "foto") {
-      if (imgs.front) { const r = fromLines(linesByFace.front); lrF = r.lr; tbF = r.tb; }
-      if (imgs.back) { const r = fromLines(linesByFace.back); lrB = r.lr; tbB = r.tb; }
+      if (imgs.front) { const r = axes(linesByFace.front); lrF = r.lr; tbF = r.tb; if (r.lr == null || r.tb == null) warn = true; }
+      if (imgs.back) { const r = axes(linesByFace.back); lrB = r.lr; tbB = r.tb; if (r.lr == null || r.tb == null) warn = true; }
     } else {
       lrF = share(+m.l || 0, +m.r || 0);
       tbF = share(+m.t || 0, +m.b || 0);
       if (m.bl !== "" && m.br !== "") lrB = share(+m.bl, +m.br);
       if (m.bt !== "" && m.bb !== "") tbB = share(+m.bt, +m.bb);
     }
-    const worst = Math.max(lrF, tbF);
-    const best = Math.min(lrF, tbF);
-    const backWorst = lrB != null || tbB != null ? Math.max(lrB ?? 0, tbB ?? 0) : null;
-    return { lrF, tbF, lrB, tbB, worst, best, backWorst };
+    const fvals = [lrF, tbF].filter((v) => v != null);
+    const worst = fvals.length ? Math.max(...fvals) : null;
+    const best = fvals.length ? Math.min(...fvals) : null;
+    const bvals = [lrB, tbB].filter((v) => v != null);
+    const backWorst = bvals.length ? Math.max(...bvals) : null;
+    return { lrF, tbF, lrB, tbB, worst, best, backWorst, warn };
   }, [mode, imgs, linesByFace, m]);
 
   /* --- controllo trimming dalle dimensioni --- */
@@ -667,13 +676,13 @@ function Calibro() {
   }, [dim]);
 
   /* --- gradi --- */
-  const psaCent = psaCentering(cent.worst, cent.backWorst);
+  const psaCent = psaCentering(cent.worst ?? 50, cent.backWorst);
   const psaFactors = [psaCent, cond.corners, cond.edges, cond.surface];
   let psa = Math.min(...psaFactors);
   if (vintage && psaCent < 10) psa = Math.min(Math.max(psaCent + 0, psa) + 0, psa); // nota: leeway gestita nei flag
   const psaLimitIdx = psaFactors.indexOf(psa);
 
-  const bgsCent = bgsCentering(cent.worst, cent.best, cent.backWorst);
+  const bgsCent = bgsCentering(cent.worst ?? 50, cent.best ?? 50, cent.backWorst);
   const bgs = bgsOverall(bgsCent, cond.corners, cond.edges, cond.surface);
   const bgsSubs = [
     { k: "Cent", v: bgsCent },
@@ -706,7 +715,7 @@ function Calibro() {
       psa: trim === "trim" ? "—" : (psa % 1 ? psa.toFixed(1) : String(psa)),
       bgs: trim === "trim" ? "—" : (bgs.g % 1 ? bgs.g.toFixed(1) : String(bgs.g)),
       black: bgs.black,
-      front: fmtRatio(cent.worst),
+      front: cent.worst == null ? "—" : fmtRatio(cent.worst),
       tone: verdict.tone,
     };
     const arr = [entry, ...savedCards];
@@ -794,11 +803,14 @@ function Calibro() {
             </div>
             {/* flags */}
             <div className="cal-flagrow">
+              {cent.warn && (
+                <span className="cal-flag" style={{ color: "var(--mg)", borderColor: "currentColor" }}><AlertTriangle size={13} /> Crocino a zero — sistema alto/basso o sx/dx</span>
+              )}
               {cond.corners === 10 && cond.edges === 10 && cond.surface === 10 && (
                 <span className="cal-flag" style={{ color: "var(--yl)", borderColor: "currentColor" }}><AlertTriangle size={13} /> Condizione non valutata — voto provvisorio</span>
               )}
-              <span className="cal-flag" style={{ color: cent.worst <= 55 ? "var(--grn)" : cent.worst <= 60 ? "var(--yl)" : "var(--mg)", borderColor: "currentColor" }}>
-                <Crosshair size={13} /> Fronte {fmtRatio(cent.worst)}
+              <span className="cal-flag" style={{ color: cent.worst == null ? "var(--mut)" : cent.worst <= 55 ? "var(--grn)" : cent.worst <= 60 ? "var(--yl)" : "var(--mg)", borderColor: "currentColor" }}>
+                <Crosshair size={13} /> Fronte {cent.worst == null ? "—" : fmtRatio(cent.worst)}
               </span>
               {cent.backWorst != null && (
                 <span className="cal-flag" style={{ color: "var(--mut)", borderColor: "var(--line)" }}>
