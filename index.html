@@ -1048,19 +1048,33 @@ function Calibro() {
                 {curImg && <button className="cal-btn" style={{ padding: "4px 9px", fontSize: 12 }} onClick={() => fileRef.current?.click()}>Cambia foto</button>}
               </div>
               {curImg && (
-                <div style={{ marginTop: 10 }}>
-                  <div className="cal-row" style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                    <span style={{ fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".06em", flex: "none" }}>Raddrizza</span>
+                <>
+                  {/* ---- RADDRIZZA ---- */}
+                  <div style={{ marginTop: 12, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Raddrizza</div>
+                  <div className="cal-row">
+                    <button className="cal-btn" disabled={scan && scan.loading} onClick={autoScan} style={{ borderColor: "var(--cy)", color: "var(--cy)" }}>{scan && scan.loading ? "Scansiono…" : "✨ Auto-raddrizza (beta)"}</button>
+                    <button className={`cal-btn ${persp ? "on" : ""}`} onClick={() => setPersp((v) => !v)} style={persp ? { borderColor: "var(--cy)", color: "var(--cy)" } : {}}>⌖ Prospettiva manuale</button>
+                    {persp && (
+                      <>
+                        <button className="cal-btn" disabled={warping} onClick={applyPerspective} style={{ borderColor: "var(--grn)", color: "var(--grn)" }}>{warping ? "Elaboro…" : "Applica"}</button>
+                        <button className="cal-btn" onClick={() => { setPersp(false); setCornersByFace((p) => ({ ...p, [face]: DEF_CORNERS })); }}>Annulla</button>
+                      </>
+                    )}
+                  </div>
+                  {scan && scan.loading && <div className="cal-mini">Carico il motore di scansione (la prima volta scarica ~8&nbsp;MB, serve connessione) e cerco la carta…</div>}
+                  {scan && scan.error && <div className="cal-mini" style={{ color: "var(--yl)" }}>Non sono riuscito a trovare i bordi da solo (sfondo poco contrastato o riflessi). Ho aperto i 4 pallini: trascinali sugli angoli e premi Applica. Suggerimento: carta scura su sfondo chiaro e l'auto-scan funziona molto meglio.</div>}
+                  {persp && <div className="cal-mini">Trascina i 4 pallini ciano sui 4 angoli della carta, poi premi Applica: la foto viene raddrizzata e ritagliata alle proporzioni esatte.</div>}
+                  <div className="cal-row" style={{ alignItems: "center", flexWrap: "nowrap", marginTop: 8 }}>
+                    <span style={{ fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", flex: "none" }}>Ruota</span>
                     <button className="cal-btn" style={{ padding: "4px 10px", flex: "none" }} onClick={() => setRot(Math.round((rot - 0.5) * 10) / 10)}>−</button>
                     <input className="cal-range" type="range" min={-20} max={20} step={0.5} value={rot} onChange={(e) => setRot(parseFloat(e.target.value))} style={{ flex: 1, minWidth: 0 }} />
                     <button className="cal-btn" style={{ padding: "4px 10px", flex: "none" }} onClick={() => setRot(Math.round((rot + 0.5) * 10) / 10)}>+</button>
                     <span style={{ fontFamily: "'Space Mono',monospace", fontSize: 12, color: "var(--txt)", width: 44, textAlign: "right", flex: "none" }}>{rot.toFixed(1)}°</span>
                   </div>
-                  <div className="cal-mini">Ruota finché i bordi della carta sono dritti (paralleli ai crocini ciano), poi posiziona i crocini. {rot !== 0 && <button onClick={() => setRot(0)} style={{ background: "none", border: "none", color: "var(--cy)", cursor: "pointer", padding: 0, font: "inherit" }}>↺ azzera</button>}</div>
-                </div>
-              )}
-              {curImg && (
-                <>
+                  {rot !== 0 && <div className="cal-mini"><button onClick={() => setRot(0)} style={{ background: "none", border: "none", color: "var(--cy)", cursor: "pointer", padding: 0, font: "inherit" }}>↺ azzera rotazione</button></div>}
+
+                  {/* ---- VISTA ---- */}
+                  <div style={{ marginTop: 14, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Vista</div>
                   {/* filtro superficie B/N */}
                   <div className="cal-row" style={{ marginTop: 10, alignItems: "center" }}>
                     <span style={{ fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".06em" }}>Superficie</span>
@@ -1085,19 +1099,8 @@ function Calibro() {
                     )}
                     {loupe && <span style={{ fontSize: 11.5, color: "var(--mut)" }}>Passa il dito sulla carta per ispezionare</span>}
                   </div>
-                  <div className="cal-row" style={{ marginTop: 8 }}>
-                    <button className="cal-btn" disabled={scan && scan.loading} onClick={autoScan} style={{ borderColor: "var(--cy)", color: "var(--cy)" }}>{scan && scan.loading ? "Scansiono…" : "✨ Auto-raddrizza (beta)"}</button>
-                    <button className={`cal-btn ${persp ? "on" : ""}`} onClick={() => setPersp((v) => !v)} style={persp ? { borderColor: "var(--cy)", color: "var(--cy)" } : {}}>⌖ Prospettiva manuale</button>
-                    {persp && (
-                      <>
-                        <button className="cal-btn" disabled={warping} onClick={applyPerspective} style={{ borderColor: "var(--grn)", color: "var(--grn)" }}>{warping ? "Elaboro…" : "Applica raddrizzamento"}</button>
-                        <button className="cal-btn" onClick={() => { setPersp(false); setCornersByFace((p) => ({ ...p, [face]: DEF_CORNERS })); }}>Annulla</button>
-                      </>
-                    )}
-                  </div>
-                  {scan && scan.loading && <div className="cal-mini">Carico il motore di scansione (la prima volta scarica ~8&nbsp;MB, serve connessione) e cerco la carta…</div>}
-                  {scan && scan.error && <div className="cal-mini" style={{ color: "var(--yl)" }}>Non sono riuscito a trovare i bordi da solo (sfondo poco contrastato o riflessi). Ho aperto i 4 pallini: trascinali sugli angoli e premi Applica. Suggerimento: foto su superficie a contrasto (la carta scura su sfondo chiaro) e l'auto-scan funziona molto meglio.</div>}
-                  {persp && <div className="cal-mini">Trascina i 4 pallini ciano esattamente sui 4 angoli della carta, poi premi Applica: la foto viene raddrizzata e ritagliata alle proporzioni esatte.</div>}
+                  {/* ---- ANALISI ---- */}
+                  <div style={{ marginTop: 14, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Analisi difetti</div>
                   <div className="cal-row" style={{ marginTop: 8 }}>
                     <button className="cal-btn" disabled={whiteResult && whiteResult.loading} onClick={analyzeWhitening} style={{ borderColor: "var(--mg)", color: "var(--mg)" }}><ScanLine size={14} /> {whiteResult && whiteResult.loading ? "Analizzo…" : "Analizza whitening bordi"}</button>
                   </div>
@@ -1147,6 +1150,8 @@ function Calibro() {
             </>
           )}
 
+          {/* ---- MISURA ---- */}
+          <div style={{ marginTop: 14, marginBottom: 2, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Misura centratura</div>
           {/* readout ratios */}
           <div className="cal-readout">
             <div className="cal-ro"><div className="k">{mode === "foto" ? (face === "front" ? "Fronte · " : "Retro · ") : ""}Sinistra / Destra</div><div className="v">{curR.lr != null ? fmtRatio(curR.lr) : "—"}</div></div>
