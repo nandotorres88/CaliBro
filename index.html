@@ -464,6 +464,7 @@ function Calibro() {
   const [imgErr, setImgErr] = useState({ front: false, back: false });
   const [linesByFace, setLinesByFace] = useState({ front: { ...LINES_DEF }, back: { ...LINES_DEF } });
   const [filter, setFilter] = useState("normale"); // filtro superficie
+  const [surfaceMap, setSurfaceMap] = useState(null); // mappa difetti (null | "loading" | dataURL)
   const [cardType, setCardType] = useState({ front: "bordata", back: "western" });
   const [rotByFace, setRotByFace] = useState({ front: 0, back: 0 });
   const [grid, setGrid] = useState(false);
@@ -500,7 +501,7 @@ function Calibro() {
     })();
   }, []);
 
-  useEffect(() => { setWhiteResult(null); }, [face]);
+  useEffect(() => { setWhiteResult(null); setSurfaceMap(null); }, [face]);
 
   const analyzeWhitening = () => {
     const src = imgs[face];
@@ -624,12 +625,52 @@ function Calibro() {
     setWarping(false);
   };
 
+  const makeSurfaceMap = () => {
+    const url = imgs[face];
+    if (!url) return;
+    setSurfaceMap("loading");
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const maxd = 1200, sc = Math.min(1, maxd / Math.max(im.naturalWidth, im.naturalHeight));
+        const W = Math.round(im.naturalWidth * sc), H = Math.round(im.naturalHeight * sc);
+        const cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
+        const ctx = cnv.getContext("2d"); ctx.drawImage(im, 0, 0, W, H);
+        const id = ctx.getImageData(0, 0, W, H), d = id.data, N = W * H;
+        const g = new Float32Array(N);
+        for (let i = 0; i < N; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+        const r = 4, tmp = new Float32Array(N), bl = new Float32Array(N), win = 2 * r + 1;
+        for (let y = 0; y < H; y++) {
+          const row = y * W; let acc = 0;
+          for (let x = -r; x <= r; x++) acc += g[row + Math.min(W - 1, Math.max(0, x))];
+          for (let x = 0; x < W; x++) { tmp[row + x] = acc / win; acc += g[row + Math.min(W - 1, x + r + 1)] - g[row + Math.max(0, x - r)]; }
+        }
+        for (let x = 0; x < W; x++) {
+          let acc = 0;
+          for (let y = -r; y <= r; y++) acc += tmp[Math.min(H - 1, Math.max(0, y)) * W + x];
+          for (let y = 0; y < H; y++) { bl[y * W + x] = acc / win; acc += tmp[Math.min(H - 1, y + r + 1) * W + x] - tmp[Math.max(0, y - r) * W + x]; }
+        }
+        const k = 7;
+        for (let i = 0; i < N; i++) {
+          let v = 128 + k * (g[i] - bl[i]);
+          v = v < 0 ? 0 : v > 255 ? 255 : v;
+          d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
+        }
+        ctx.putImageData(id, 0, 0);
+        setSurfaceMap(cnv.toDataURL("image/jpeg", 0.9));
+      } catch (e) { setSurfaceMap(null); }
+    };
+    im.onerror = () => setSurfaceMap(null);
+    im.src = url;
+  };
+
   const onFile = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setImgErr((p) => ({ ...p, [face]: false }));
     setImgs((p) => ({ ...p, [face]: null }));
     setWhiteResult(null);
+    setSurfaceMap(null);
     const reader = new FileReader();
     reader.onload = (ev) => setImgs((p) => ({ ...p, [face]: ev.target.result }));
     reader.onerror = () => setImgErr((p) => ({ ...p, [face]: true }));
@@ -873,7 +914,7 @@ function Calibro() {
                 onPointerUp={loupe ? stageEnd : undefined}
                 onPointerLeave={loupe ? stageEnd : undefined}>
                 {curImg && !curErr ? (
-                  <img src={curImg} alt={face === "front" ? "fronte" : "retro"} style={{ filter: filterCss, transform: `rotate(${rot}deg)` }} onError={() => setImgErr((p) => ({ ...p, [face]: true }))} />
+                  <img src={typeof surfaceMap === "string" ? surfaceMap : curImg} alt={face === "front" ? "fronte" : "retro"} style={{ filter: typeof surfaceMap === "string" ? "none" : filterCss, transform: `rotate(${rot}deg)` }} onError={() => setImgErr((p) => ({ ...p, [face]: true }))} />
                 ) : curErr ? (
                   <button className="cal-drop" onClick={() => fileRef.current?.click()} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>
                     <AlertTriangle className="ic" style={{ color: "var(--yl)" }} />
@@ -962,6 +1003,7 @@ function Calibro() {
                       <ZoomIn size={14} /> Lente {loupe ? "attiva" : ""}
                     </button>
                     <button className={`cal-btn ${grid ? "on" : ""}`} onClick={() => setGrid((v) => !v)} style={grid ? { borderColor: "var(--yl)", color: "var(--yl)" } : {}}>▦ Griglia</button>
+                    <button className={`cal-btn ${typeof surfaceMap === "string" ? "on" : ""}`} disabled={surfaceMap === "loading"} onClick={() => { if (typeof surfaceMap === "string") setSurfaceMap(null); else makeSurfaceMap(); }} style={typeof surfaceMap === "string" ? { borderColor: "var(--mg)", color: "var(--mg)" } : {}}><ScanLine size={14} /> {surfaceMap === "loading" ? "Calcolo…" : "Mappa difetti"}</button>
                     {loupe && (
                       <div className="cal-toggle">
                         {[2, 3, 4].map((z) => (
@@ -971,6 +1013,7 @@ function Calibro() {
                     )}
                     {loupe && <span style={{ fontSize: 11.5, color: "var(--mut)" }}>Passa il dito sulla carta per ispezionare</span>}
                   </div>
+                  {typeof surfaceMap === "string" && <div className="cal-mini" style={{ color: "var(--mg)" }}>Mappa difetti attiva: la superficie liscia diventa grigio neutro; graffi, ammaccature e print line "saltano" come righe o macchie chiare/scure. Usala con la Lente. È un aiuto visivo per l'occhio, non un voto automatico — il disegno stesso (vortice, holo) può creare contrasti, quindi giudica tu cos'è difetto.</div>}
                   {/* ---- ANALISI ---- */}
                   <div style={{ marginTop: 14, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Analisi difetti</div>
                   <div className="cal-row" style={{ marginTop: 8 }}>
