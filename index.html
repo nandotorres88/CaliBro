@@ -434,103 +434,6 @@ function warpImage(dataUrl, corners, ratio = 63 / 88) {
   });
 }
 
-/* ---------- AUTO-SCAN (OpenCV.js) ---------- */
-let _cvPromise = null;
-function loadCv() {
-  if (typeof window !== "undefined" && window.cv && window.cv.Mat) return Promise.resolve(window.cv);
-  if (_cvPromise) return _cvPromise;
-  _cvPromise = new Promise((resolve, reject) => {
-    const ready = () => (window.cv && window.cv.Mat ? (resolve(window.cv), true) : false);
-    const s = document.createElement("script");
-    s.src = "https://docs.opencv.org/4.x/opencv.js";
-    s.async = true;
-    s.onerror = () => reject(new Error("load"));
-    s.onload = () => {
-      if (ready()) return;
-      let n = 0;
-      const id = setInterval(() => { if (ready()) clearInterval(id); else if (++n > 300) { clearInterval(id); reject(new Error("timeout")); } }, 100);
-    };
-    document.body.appendChild(s);
-  });
-  return _cvPromise;
-}
-function _order(p) {
-  const s = p.map((q) => q.x + q.y), d = p.map((q) => q.x - q.y);
-  return [p[s.indexOf(Math.min(...s))], p[d.indexOf(Math.max(...d))], p[s.indexOf(Math.max(...s))], p[d.indexOf(Math.min(...d))]];
-}
-function _aspectOK(o) {
-  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const w = (d(o[0], o[1]) + d(o[3], o[2])) / 2, h = (d(o[0], o[3]) + d(o[1], o[2])) / 2;
-  if (!w || !h) return false;
-  const ar = Math.min(w, h) / Math.max(w, h);
-  return ar > 0.5 && ar < 0.88;
-}
-function _largestQuad(cv, edges, imgA) {
-  const cs = new cv.MatVector(), hi = new cv.Mat();
-  cv.findContours(edges, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  let best = null, bestA = 0;
-  for (let i = 0; i < cs.size(); i++) {
-    const c = cs.get(i), a = cv.contourArea(c);
-    if (a > 0.12 * imgA && a < 0.99 * imgA && a > bestA) {
-      const peri = cv.arcLength(c, true), ap = new cv.Mat();
-      cv.approxPolyDP(c, ap, 0.02 * peri, true);
-      if (ap.rows === 4) {
-        const p = [];
-        for (let j = 0; j < 4; j++) p.push({ x: ap.data32S[j * 2], y: ap.data32S[j * 2 + 1] });
-        const o = _order(p);
-        if (_aspectOK(o)) { best = o; bestA = a; }
-      }
-      ap.delete();
-    }
-    c.delete();
-  }
-  cs.delete(); hi.delete();
-  return best;
-}
-function _largestRect(cv, bw, imgA) {
-  const cs = new cv.MatVector(), hi = new cv.Mat();
-  cv.findContours(bw, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-  let bestA = 0, bestRect = null;
-  for (let i = 0; i < cs.size(); i++) {
-    const c = cs.get(i), a = cv.contourArea(c);
-    if (a > 0.12 * imgA && a < 0.99 * imgA && a > bestA) { bestA = a; bestRect = cv.minAreaRect(c); }
-    c.delete();
-  }
-  cs.delete(); hi.delete();
-  if (!bestRect) return null;
-  const c = bestRect.center, s = bestRect.size, ang = (bestRect.angle * Math.PI) / 180, cos = Math.cos(ang), sin = Math.sin(ang), hw = s.width / 2, hh = s.height / 2;
-  const pts = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => ({ x: c.x + x * cos - y * sin, y: c.y + x * sin + y * cos }));
-  const o = _order(pts);
-  return _aspectOK(o) ? o : null;
-}
-function detectCardQuad(cv, src) {
-  const imgA = src.rows * src.cols;
-  const gray = new cv.Mat();
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-  let res = null;
-  try {
-    const edges = new cv.Mat(), k = cv.Mat.ones(5, 5, cv.CV_8U);
-    cv.Canny(gray, edges, 30, 110);
-    cv.dilate(edges, edges, k);
-    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, k);
-    res = _largestQuad(cv, edges, imgA);
-    edges.delete(); k.delete();
-  } catch (e) { /* ignora */ }
-  if (!res) {
-    try {
-      const bw = new cv.Mat(), k2 = cv.Mat.ones(9, 9, cv.CV_8U);
-      cv.threshold(gray, bw, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
-      cv.morphologyEx(bw, bw, cv.MORPH_CLOSE, k2);
-      cv.morphologyEx(bw, bw, cv.MORPH_OPEN, k2);
-      res = _largestRect(cv, bw, imgA);
-      bw.delete(); k2.delete();
-    } catch (e) { /* ignora */ }
-  }
-  gray.delete();
-  return res;
-}
-
 function CornerHandle({ pt, onDrag, containerRef }) {
   const drag = useRef(false);
   const down = (e) => { e.preventDefault(); e.stopPropagation(); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {} drag.current = true; };
@@ -569,7 +472,6 @@ function Calibro() {
   const [warping, setWarping] = useState(false);
   const [val, setVal] = useState({ q: "", lang: "it", company: "PSA", grade: "10" });
   const [whiteResult, setWhiteResult] = useState(null);
-  const [scan, setScan] = useState(null);
   const stageRef = useRef(null);
   const fileRef = useRef(null);
 
@@ -720,33 +622,6 @@ function Calibro() {
       setPersp(false);
     } catch (e) { /* warp non riuscito */ }
     setWarping(false);
-  };
-
-  const autoScan = async () => {
-    const url = imgs[face];
-    if (!url) return;
-    setScan({ loading: true });
-    try {
-      const cv = await loadCv();
-      const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-      const maxd = 1400, sc = Math.min(1, maxd / Math.max(im.naturalWidth, im.naturalHeight));
-      const W = Math.round(im.naturalWidth * sc), Hh = Math.round(im.naturalHeight * sc);
-      const cnv = document.createElement("canvas"); cnv.width = W; cnv.height = Hh;
-      cnv.getContext("2d").drawImage(im, 0, 0, W, Hh);
-      const srcMat = cv.imread(cnv);
-      let quad = null;
-      try { quad = detectCardQuad(cv, srcMat); } catch (e) { quad = null; }
-      srcMat.delete();
-      if (!quad) { setScan({ error: true }); setPersp(true); return; }
-      const cornersFrac = quad.map((p) => ({ x: Math.max(0, Math.min(1, p.x / W)), y: Math.max(0, Math.min(1, p.y / Hh)) }));
-      const out = await warpImage(url, cornersFrac);
-      setImgs((p) => ({ ...p, [face]: out }));
-      setRotByFace((p) => ({ ...p, [face]: 0 }));
-      setWhiteResult(null);
-      setScan(null);
-    } catch (e) {
-      setScan({ error: true });
-    }
   };
 
   const onFile = (e) => {
@@ -1052,8 +927,7 @@ function Calibro() {
                   {/* ---- RADDRIZZA ---- */}
                   <div style={{ marginTop: 12, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Raddrizza</div>
                   <div className="cal-row">
-                    <button className="cal-btn" disabled={scan && scan.loading} onClick={autoScan} style={{ borderColor: "var(--cy)", color: "var(--cy)" }}>{scan && scan.loading ? "Scansiono…" : "✨ Auto-raddrizza (beta)"}</button>
-                    <button className={`cal-btn ${persp ? "on" : ""}`} onClick={() => setPersp((v) => !v)} style={persp ? { borderColor: "var(--cy)", color: "var(--cy)" } : {}}>⌖ Prospettiva manuale</button>
+                    <button className={`cal-btn ${persp ? "on" : ""}`} onClick={() => setPersp((v) => !v)} style={persp ? { borderColor: "var(--cy)", color: "var(--cy)" } : {}}>⌖ Prospettiva (4 angoli)</button>
                     {persp && (
                       <>
                         <button className="cal-btn" disabled={warping} onClick={applyPerspective} style={{ borderColor: "var(--grn)", color: "var(--grn)" }}>{warping ? "Elaboro…" : "Applica"}</button>
@@ -1061,8 +935,6 @@ function Calibro() {
                       </>
                     )}
                   </div>
-                  {scan && scan.loading && <div className="cal-mini">Carico il motore di scansione (la prima volta scarica ~8&nbsp;MB, serve connessione) e cerco la carta…</div>}
-                  {scan && scan.error && <div className="cal-mini" style={{ color: "var(--yl)" }}>Non sono riuscito a trovare i bordi da solo (sfondo poco contrastato o riflessi). Ho aperto i 4 pallini: trascinali sugli angoli e premi Applica. Suggerimento: carta scura su sfondo chiaro e l'auto-scan funziona molto meglio.</div>}
                   {persp && <div className="cal-mini">Trascina i 4 pallini ciano sui 4 angoli della carta, poi premi Applica: la foto viene raddrizzata e ritagliata alle proporzioni esatte.</div>}
                   <div className="cal-row" style={{ alignItems: "center", flexWrap: "nowrap", marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", flex: "none" }}>Ruota</span>
