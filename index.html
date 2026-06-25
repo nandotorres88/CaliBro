@@ -487,6 +487,8 @@ function Calibro() {
 
   // carte salvate
   const [cardName, setCardName] = useState("");
+  const [cardNum, setCardNum] = useState("");
+  const [cardSet, setCardSet] = useState("");
   const [savedCards, setSavedCards] = useState([]);
   const [backup, setBackup] = useState(null);
 
@@ -787,7 +789,8 @@ function Calibro() {
   const saveCard = () => {
     const entry = {
       id: Date.now(),
-      name: cardName.trim() || `Carta ${savedCards.length + 1}`,
+      name: [cardName.trim(), cardNum.trim()].filter(Boolean).join(" ") || `Carta ${savedCards.length + 1}`,
+      set: cardSet.trim(),
       psa: trim === "trim" ? "—" : (psa % 1 ? psa.toFixed(1) : String(psa)),
       bgs: trim === "trim" ? "—" : (bgs.g % 1 ? bgs.g.toFixed(1) : String(bgs.g)),
       black: bgs.black,
@@ -795,7 +798,7 @@ function Calibro() {
       tone: verdict.tone,
     };
     const arr = [entry, ...savedCards];
-    setSavedCards(arr); persist(arr); setCardName("");
+    setSavedCards(arr); persist(arr);
   };
   const removeCard = (id) => {
     const arr = savedCards.filter((c) => c.id !== id);
@@ -835,9 +838,11 @@ function Calibro() {
   const gradeOpts = val.company === "BGS" ? ["10", "9.5", "9", "8.5", "8"] : ["10", "9", "8", "7"];
   const _langWord = { it: "italiano", en: "english", jp: "japanese" }[val.lang];
   const _gradeWord = val.company === "Raw" ? "" : `${val.company} ${val.grade}`;
-  const _q = [val.q, _langWord, _gradeWord].filter(Boolean).join(" ").trim();
+  const cardQuery = [cardName.trim(), cardNum.trim(), cardSet.trim()].filter(Boolean).join(" ").trim();
+  const _qBase = val.q.trim() || cardQuery;
+  const _q = [_qBase, _langWord, _gradeWord].filter(Boolean).join(" ").trim();
   const ebayUrl = `https://www.ebay.it/sch/i.html?_nkw=${encodeURIComponent(_q || "pokemon")}&LH_Sold=1&LH_Complete=1&_sop=13`;
-  const _qRaw = [val.q, _langWord].filter(Boolean).join(" ").trim();
+  const _qRaw = [_qBase, _langWord].filter(Boolean).join(" ").trim();
   const rawUrl = `https://www.ebay.it/sch/i.html?_nkw=${encodeURIComponent((_qRaw || "pokemon") + " -psa -bgs -cgc")}&LH_Sold=1&LH_Complete=1&_sop=13`;
 
   return (
@@ -920,6 +925,11 @@ function Calibro() {
         {/* ===== 1. CENTRATURA ===== */}
         <div className="cal-section">
           <div className="cal-step"><div className="cal-stepn">1</div><div className="cal-stept">Centratura</div></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            <div className="cal-field" style={{ gridColumn: "1 / -1" }}><label>Nome carta</label><input className="cal-input" placeholder="es. Piplup" value={cardName} onChange={(e) => setCardName(e.target.value)} /></div>
+            <div className="cal-field"><label>Numero</label><input className="cal-input" placeholder="es. 239/236" value={cardNum} onChange={(e) => setCardNum(e.target.value)} /></div>
+            <div className="cal-field"><label>Set</label><input className="cal-input" placeholder="es. Eclissi Cosmica" value={cardSet} onChange={(e) => setCardSet(e.target.value)} /></div>
+          </div>
           <div className="cal-tabs">
             <button className={`cal-tab ${mode === "foto" ? "on" : ""}`} onClick={() => setMode("foto")}>Misura su foto</button>
             <button className={`cal-tab ${mode === "manuale" ? "on" : ""}`} onClick={() => setMode("manuale")}>Inserimento mm</button>
@@ -998,6 +1008,7 @@ function Calibro() {
                 <span><i className="cal-swatch mg" /> inizio immagine / cornice</span>
                 {curImg && <button className="cal-btn" style={{ padding: "4px 9px", fontSize: 12 }} onClick={() => fileRef.current?.click()}>Cambia foto</button>}
               </div>
+              <div className="cal-mini" style={{ marginTop: 6 }}>💡 Per la carta perfettamente dritta: scansionala con l'app <b>File</b> di iPhone (in basso scegli <b>Scansione</b>) o con <b>Note</b> → la fotocamera la raddrizza e ritaglia da sola; poi caricala qui con <b>Cambia foto</b>.</div>
               {curImg && (
                 <>
                   {/* ---- RADDRIZZA ---- */}
@@ -1197,7 +1208,7 @@ function Calibro() {
           <div className="cal-step"><div className="cal-stepn">4</div><div className="cal-stept">Salva e confronta</div></div>
           <div className="cal-hint">Salva il risultato corrente per confrontare più carte. Su file aperto localmente la lista può azzerarsi tra una sessione e l'altra: usa <b>Backup / Ripristino</b> qui sotto per non perderla.</div>
           <div className="cal-saverow">
-            <input className="cal-input" placeholder="Nome carta (es. Charizard 4/102)" value={cardName} onChange={(e) => setCardName(e.target.value)} />
+            <div className="cal-input" style={{ display: "flex", alignItems: "center", color: cardName || cardNum ? "var(--txt)" : "var(--mut)", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{[cardName.trim(), cardNum.trim()].filter(Boolean).join(" ") || "Compila Nome / Numero in alto"}{cardSet.trim() ? ` · ${cardSet.trim()}` : ""}</div>
             <button className="cal-btn" onClick={saveCard}><Save size={14} /> Salva</button>
           </div>
           <div className="cal-saved">
@@ -1236,8 +1247,13 @@ function Calibro() {
           <div className="cal-step"><div className="cal-stepn">5</div><div className="cal-stept">Valore di mercato</div></div>
           <div className="cal-hint">Dai dati della carta e dal grado, apri i prezzi reali. L'app non raschia i prezzi (eBay non lo consente): costruisce la ricerca giusta dei <b>venduti</b> e te la apre.</div>
           <div className="cal-field" style={{ marginBottom: 8 }}>
-            <label>Carta — nome, set, numero</label>
-            <input className="cal-input" style={{ fontFamily: "'Inter',sans-serif", fontSize: 14 }} placeholder="es. Yanmega ex Destined Rivals 228/182" value={val.q} onChange={(e) => setVal((p) => ({ ...p, q: e.target.value }))} />
+            <label>Ricerca {!val.q.trim() && cardQuery ? "(auto dai dati carta)" : "(sovrascritta)"}</label>
+            <input className="cal-input" style={{ fontFamily: "'Inter',sans-serif", fontSize: 14 }} placeholder={cardQuery || "es. Yanmega ex Destined Rivals 228/182"} value={val.q} onChange={(e) => setVal((p) => ({ ...p, q: e.target.value }))} />
+            <div className="cal-mini" style={{ marginTop: 5 }}>
+              {cardQuery
+                ? <>Si compila da sola da <b>Nome · Numero · Set</b> in alto: cerca «{[_qBase, _langWord, _gradeWord].filter(Boolean).join(" ")}». Scrivi qui solo per cercare qualcos'altro{val.q.trim() ? <> — <button onClick={() => setVal((p) => ({ ...p, q: "" }))} style={{ background: "none", border: "none", color: "var(--cy)", cursor: "pointer", padding: 0, font: "inherit" }}>↺ torna ai dati carta</button></> : null}.</>
+                : <>Compila <b>Nome · Numero · Set</b> in cima (sezione Centratura) e la ricerca si riempie da sola, oppure scrivi qui.</>}
+            </div>
           </div>
           <div className="cal-row" style={{ gap: 8 }}>
             <select className="cal-input" style={{ flex: 1, minWidth: 0 }} value={val.lang} onChange={(e) => setVal((p) => ({ ...p, lang: e.target.value }))}>
