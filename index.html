@@ -588,13 +588,13 @@ function Calibro() {
         const yA = Math.floor(H * 0.28), yB = Math.floor(H * 0.72);
         const xA = Math.floor(W * 0.28), xB = Math.floor(W * 0.72);
         const bestX = (f) => {
-          const x0 = Math.max(2, Math.floor((f - 0.06) * W)), x1 = Math.min(W - 3, Math.ceil((f + 0.06) * W));
+          const x0 = Math.max(2, Math.floor((f - 0.035) * W)), x1 = Math.min(W - 3, Math.ceil((f + 0.035) * W));
           let bx = Math.round(f * W), bg = -1;
           for (let x = x0; x <= x1; x++) { let g = 0; for (let y = yA; y < yB; y += 3) g += Math.abs(lum(x + 1, y) - lum(x - 1, y)); if (g > bg) { bg = g; bx = x; } }
           return bx / W;
         };
         const bestY = (f) => {
-          const y0 = Math.max(2, Math.floor((f - 0.06) * H)), y1 = Math.min(H - 3, Math.ceil((f + 0.06) * H));
+          const y0 = Math.max(2, Math.floor((f - 0.035) * H)), y1 = Math.min(H - 3, Math.ceil((f + 0.035) * H));
           let by = Math.round(f * H), bg = -1;
           for (let y = y0; y <= y1; y++) { let g = 0; for (let x = xA; x < xB; x += 3) g += Math.abs(lum(x, y + 1) - lum(x, y - 1)); if (g > bg) { bg = g; by = y; } }
           return by / H;
@@ -657,10 +657,45 @@ function Calibro() {
           d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
         }
         ctx.putImageData(id, 0, 0);
+        setImgErr((p) => ({ ...p, [face]: false }));
         setSurfaceMap(cnv.toDataURL("image/jpeg", 0.9));
       } catch (e) { setSurfaceMap(null); }
     };
     im.onerror = () => setSurfaceMap(null);
+    im.src = url;
+  };
+
+  const dlData = (data, name) => { try { const a = document.createElement("a"); a.href = data; a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) {} };
+  const downloadReport = () => {
+    const url = imgs[face];
+    if (!url) return;
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const W = im.naturalWidth, H = im.naturalHeight, pad = Math.round(W * 0.045);
+        const foot = whiteResult && whiteResult.sides ? Math.round(W * 0.24) : Math.round(W * 0.13);
+        const c = document.createElement("canvas"); c.width = W; c.height = H + foot;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#121419"; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(im, 0, 0, W, H);
+        const L = linesByFace[face]; ctx.lineWidth = Math.max(2, W * 0.0035);
+        const CY = "#1FC9D4", MG = "#FF3D78";
+        const vl = (f, col) => { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(f * W, 0); ctx.lineTo(f * W, H); ctx.stroke(); };
+        const hl = (f, col) => { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(0, f * H); ctx.lineTo(W, f * H); ctx.stroke(); };
+        vl(L.ol, CY); vl(L.or, CY); vl(L.il, MG); vl(L.ir, MG); hl(L.ot, CY); hl(L.ob, CY); hl(L.it, MG); hl(L.ib, MG);
+        const fs = Math.round(W * 0.038); ctx.fillStyle = "#E9EBEF"; ctx.font = `bold ${fs}px monospace`;
+        let ty = H + fs + Math.round(W * 0.02);
+        ctx.fillText(`CALIBRO · ${face === "front" ? "FRONTE" : "RETRO"}`, pad, ty);
+        ctx.font = `${fs}px monospace`; ty += fs * 1.45;
+        ctx.fillText(`Sx/Dx ${curR.lr != null ? fmtRatio(curR.lr) : "—"}   Alto/Basso ${curR.tb != null ? fmtRatio(curR.tb) : "—"}`, pad, ty);
+        if (whiteResult && whiteResult.sides) {
+          ty += fs * 1.45;
+          ctx.fillText(`Whitening bordi  sx ${whiteResult.sides.sx.toFixed(1)} dx ${whiteResult.sides.dx.toFixed(1)} su ${whiteResult.sides.alto.toFixed(1)} giu ${whiteResult.sides.basso.toFixed(1)}`, pad, ty);
+          if (whiteResult.corners) { ty += fs * 1.45; ctx.fillText(`Whitening angoli  TL ${whiteResult.corners.tl.toFixed(1)} TR ${whiteResult.corners.tr.toFixed(1)} BL ${whiteResult.corners.bl.toFixed(1)} BR ${whiteResult.corners.br.toFixed(1)}`, pad, ty); }
+        }
+        dlData(c.toDataURL("image/jpeg", 0.92), `calibro-report-${face}.jpg`);
+      } catch (e) { /* report non riuscito */ }
+    };
     im.src = url;
   };
 
@@ -914,7 +949,7 @@ function Calibro() {
                 onPointerUp={loupe ? stageEnd : undefined}
                 onPointerLeave={loupe ? stageEnd : undefined}>
                 {curImg && !curErr ? (
-                  <img src={typeof surfaceMap === "string" ? surfaceMap : curImg} alt={face === "front" ? "fronte" : "retro"} style={{ filter: typeof surfaceMap === "string" ? "none" : filterCss, transform: `rotate(${rot}deg)` }} onError={() => setImgErr((p) => ({ ...p, [face]: true }))} />
+                  <img src={surfaceMap && surfaceMap !== "loading" ? surfaceMap : curImg} alt={face === "front" ? "fronte" : "retro"} style={{ filter: surfaceMap && surfaceMap !== "loading" ? "none" : filterCss, transform: `rotate(${rot}deg)` }} onError={() => setImgErr((p) => ({ ...p, [face]: true }))} />
                 ) : curErr ? (
                   <button className="cal-drop" onClick={() => fileRef.current?.click()} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>
                     <AlertTriangle className="ic" style={{ color: "var(--yl)" }} />
@@ -1004,6 +1039,7 @@ function Calibro() {
                     </button>
                     <button className={`cal-btn ${grid ? "on" : ""}`} onClick={() => setGrid((v) => !v)} style={grid ? { borderColor: "var(--yl)", color: "var(--yl)" } : {}}>▦ Griglia</button>
                     <button className={`cal-btn ${typeof surfaceMap === "string" ? "on" : ""}`} disabled={surfaceMap === "loading"} onClick={() => { if (typeof surfaceMap === "string") setSurfaceMap(null); else makeSurfaceMap(); }} style={typeof surfaceMap === "string" ? { borderColor: "var(--mg)", color: "var(--mg)" } : {}}><ScanLine size={14} /> {surfaceMap === "loading" ? "Calcolo…" : "Mappa difetti"}</button>
+                    {surfaceMap && surfaceMap !== "loading" && <button className="cal-btn" onClick={() => dlData(surfaceMap, `calibro-mappa-${face}.jpg`)} style={{ borderColor: "var(--grn)", color: "var(--grn)" }}>⬇ Scarica mappa</button>}
                     {loupe && (
                       <div className="cal-toggle">
                         {[2, 3, 4].map((z) => (
@@ -1013,7 +1049,7 @@ function Calibro() {
                     )}
                     {loupe && <span style={{ fontSize: 11.5, color: "var(--mut)" }}>Passa il dito sulla carta per ispezionare</span>}
                   </div>
-                  {typeof surfaceMap === "string" && <div className="cal-mini" style={{ color: "var(--mg)" }}>Mappa difetti attiva: la superficie liscia diventa grigio neutro; graffi, ammaccature e print line "saltano" come righe o macchie chiare/scure. Usala con la Lente. È un aiuto visivo per l'occhio, non un voto automatico — il disegno stesso (vortice, holo) può creare contrasti, quindi giudica tu cos'è difetto.</div>}
+                  {surfaceMap && surfaceMap !== "loading" && <div className="cal-mini" style={{ color: "var(--mg)" }}>Mappa difetti attiva: la superficie liscia diventa grigio neutro; graffi, ammaccature e print line "saltano" come righe o macchie chiare/scure. Usala con la Lente. È un aiuto visivo per l'occhio, non un voto automatico — il disegno stesso (vortice, holo) può creare contrasti, quindi giudica tu cos'è difetto.</div>}
                   {/* ---- ANALISI ---- */}
                   <div style={{ marginTop: 14, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Analisi difetti</div>
                   <div className="cal-row" style={{ marginTop: 8 }}>
@@ -1102,6 +1138,11 @@ function Calibro() {
                 ))}
               </div>
               <div className="cal-mini" style={{ marginTop: 6 }}>"Aggancia ai bordi" rifinisce i crocini sullo spigolo più vicino (cerca entro un piccolo intorno, non salta lontano); poi usa ◀▶ per la precisione al pixel. Funziona meglio su foto raddrizzata.</div>
+            </div>
+          )}
+          {mode === "foto" && curImg && (
+            <div className="cal-row" style={{ marginTop: 10 }}>
+              <button className="cal-btn" onClick={downloadReport} style={{ borderColor: "var(--grn)", color: "var(--grn)" }}>⬇ Scarica report bordi</button>
             </div>
           )}
           {/* voto automatico da centratura */}
