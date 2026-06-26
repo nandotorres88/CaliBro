@@ -465,6 +465,8 @@ function Calibro() {
   const [linesByFace, setLinesByFace] = useState({ front: { ...LINES_DEF }, back: { ...LINES_DEF } });
   const [filter, setFilter] = useState("normale"); // filtro superficie
   const [surfaceMap, setSurfaceMap] = useState(null); // mappa difetti (null | "loading" | dataURL)
+  const [edgeBusy, setEdgeBusy] = useState(false); // auto-bordi in corso
+  const [worth, setWorth] = useState({ cost: "", raw: "", graded: "", down: "" }); // calcolatore convenienza
   const [cardType, setCardType] = useState({ front: "bordata", back: "western" });
   const [rotByFace, setRotByFace] = useState({ front: 0, back: 0 });
   const [grid, setGrid] = useState(false);
@@ -607,6 +609,44 @@ function Calibro() {
     };
     im.src = url;
   };
+  const autoEdges = (srcUrl) => {
+    const url = srcUrl || imgs[face];
+    if (!url) return;
+    setEdgeBusy(true);
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const maxd = 900, sc = Math.min(1, maxd / Math.max(im.naturalWidth, im.naturalHeight));
+        const W = Math.round(im.naturalWidth * sc), H = Math.round(im.naturalHeight * sc);
+        const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+        const ctx = cv.getContext("2d"); ctx.drawImage(im, 0, 0, W, H);
+        const d = ctx.getImageData(0, 0, W, H).data;
+        const lum = (x, y) => { const i = (y * W + x) * 4; return 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; };
+        const y0 = Math.floor(H * 0.35), y1 = Math.floor(H * 0.65);
+        const Px = new Float32Array(W);
+        for (let x = 0; x < W; x++) { let s = 0; for (let y = y0; y < y1; y++) s += lum(x, y); Px[x] = s / (y1 - y0); }
+        const x0 = Math.floor(W * 0.35), x1 = Math.floor(W * 0.65);
+        const Py = new Float32Array(H);
+        for (let y = 0; y < H; y++) { let s = 0; for (let x = x0; x < x1; x++) s += lum(x, y); Py[y] = s / (x1 - x0); }
+        const edge = (P, n, lo, hi) => { let bi = lo, bv = -1; for (let i = lo; i < hi; i++) { const g = Math.abs(P[Math.min(n - 1, i + 2)] - P[Math.max(0, i - 2)]); if (g > bv) { bv = g; bi = i; } } return bi; };
+        const ol = edge(Px, W, Math.floor(W * 0.015), Math.floor(W * 0.45)) / W;
+        const or = edge(Px, W, Math.floor(W * 0.55), Math.floor(W * 0.985)) / W;
+        const ot = edge(Py, H, Math.floor(H * 0.015), Math.floor(H * 0.45)) / H;
+        const ob = edge(Py, H, Math.floor(H * 0.55), Math.floor(H * 0.985)) / H;
+        setLinesByFace((p) => {
+          const L = { ...p[face], ol, or, ot, ob };
+          L.il = Math.min(Math.max(L.il, ol + 0.006), or - 0.006);
+          L.ir = Math.max(Math.min(L.ir, or - 0.006), ol + 0.006);
+          L.it = Math.min(Math.max(L.it, ot + 0.006), ob - 0.006);
+          L.ib = Math.max(Math.min(L.ib, ob - 0.006), ot + 0.006);
+          return { ...p, [face]: L };
+        });
+        setEdgeBusy(false);
+      } catch (e) { setEdgeBusy(false); }
+    };
+    im.onerror = () => setEdgeBusy(false);
+    im.src = url;
+  };
   const setCardKind = (k) => {
     setCardType((p) => ({ ...p, [face]: k }));
     const d = TYPE_LINES[k];
@@ -709,7 +749,7 @@ function Calibro() {
     setWhiteResult(null);
     setSurfaceMap(null);
     const reader = new FileReader();
-    reader.onload = (ev) => setImgs((p) => ({ ...p, [face]: ev.target.result }));
+    reader.onload = (ev) => { setImgs((p) => ({ ...p, [face]: ev.target.result })); autoEdges(ev.target.result); };
     reader.onerror = () => setImgErr((p) => ({ ...p, [face]: true }));
     reader.readAsDataURL(f);
   };
@@ -821,6 +861,7 @@ function Calibro() {
     setPersp(false);
     setCornersByFace({ front: DEF_CORNERS, back: DEF_CORNERS });
     setVal({ q: "", lang: "it", company: "PSA", grade: "10" });
+    setWorth({ cost: "", raw: "", graded: "", down: "" });
     setWhiteResult(null);
   };
 
@@ -844,6 +885,12 @@ function Calibro() {
   const ebayUrl = `https://www.ebay.it/sch/i.html?_nkw=${encodeURIComponent(_q || "pokemon")}&LH_Sold=1&LH_Complete=1&_sop=13`;
   const _qRaw = [_qBase, _langWord].filter(Boolean).join(" ").trim();
   const rawUrl = `https://www.ebay.it/sch/i.html?_nkw=${encodeURIComponent((_qRaw || "pokemon") + " -psa -bgs -cgc")}&LH_Sold=1&LH_Complete=1&_sop=13`;
+  const wCost = parseFloat(worth.cost) || 0, wRaw = parseFloat(worth.raw) || 0, wGraded = parseFloat(worth.graded) || 0, wDown = parseFloat(worth.down) || 0;
+  const wGain = wGraded - wRaw - wCost;
+  const wGainDown = worth.down !== "" ? wDown - wRaw - wCost : null;
+  const wBreakeven = wRaw + wCost;
+  const wReady = wGraded > 0 && worth.cost !== "" && worth.raw !== "";
+  const wVerdict = !wReady ? null : wGain < 0 ? { t: "Non conviene", c: "var(--mg)" } : wGain < wCost ? { t: "Ai limiti", c: "var(--yl)" } : { t: "Conviene", c: "var(--grn)" };
 
   return (
     <div className="cal-root">
@@ -1014,6 +1061,7 @@ function Calibro() {
                   {/* ---- RADDRIZZA ---- */}
                   <div style={{ marginTop: 12, marginBottom: 6, fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", textTransform: "uppercase", letterSpacing: ".08em", borderTop: "1px solid var(--line)", paddingTop: 12 }}>Raddrizza</div>
                   <div className="cal-row">
+                    <button className="cal-btn" disabled={edgeBusy} onClick={() => autoEdges()} style={{ borderColor: "var(--cy)", color: "var(--cy)" }}><Crosshair size={14} /> {edgeBusy ? "Cerco i bordi…" : "Auto-bordi esterni"}</button>
                     <button className={`cal-btn ${persp ? "on" : ""}`} onClick={() => setPersp((v) => !v)} style={persp ? { borderColor: "var(--cy)", color: "var(--cy)" } : {}}>⌖ Prospettiva (4 angoli)</button>
                     {persp && (
                       <>
@@ -1023,6 +1071,7 @@ function Calibro() {
                     )}
                   </div>
                   {persp && <div className="cal-mini">Trascina i 4 pallini ciano sui 4 angoli della carta, poi premi Applica: la foto viene raddrizzata e ritagliata alle proporzioni esatte.</div>}
+                  {!persp && <div className="cal-mini">I 2 crocini <b style={{ color: "var(--cy)" }}>ciano</b> si piazzano da soli sui bordi esterni quando carichi la foto (premi <b>Auto-bordi</b> per rifarlo). Tu sistemi solo i <b style={{ color: "var(--mg)" }}>magenta</b> dove inizia l'immagine. Funziona meglio su sfondo a contrasto; su nero-su-nero aggiusta a mano.</div>}
                   <div className="cal-row" style={{ alignItems: "center", flexWrap: "nowrap", marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--mut)", fontFamily: "'Space Mono',monospace", flex: "none" }}>Ruota</span>
                     <button className="cal-btn" style={{ padding: "4px 10px", flex: "none" }} onClick={() => setRot(Math.round((rot - 0.5) * 10) / 10)}>−</button>
@@ -1282,6 +1331,30 @@ function Calibro() {
             <a className="cal-btn cal-link" href={rawUrl} target="_blank" rel="noreferrer" style={{ borderColor: "var(--mut)", color: "var(--txt)" }}>Venduti raw (non gradate) →</a>
           </div>
           <div className="cal-mini">eBay mostra i prezzi <b>venduti</b> (LH_Sold), ordinati dai più recenti. Per le carte italiane i comparabili gradati sono pochi: prova anche in inglese/giapponese come riferimento.</div>
+        </div>
+
+        {/* ===== 6. CONVIENE GRADARLA? ===== */}
+        <div className="cal-section">
+          <div className="cal-step"><div className="cal-stepn">6</div><div className="cal-stept">Conviene gradarla?</div></div>
+          <div className="cal-hint">Confronta i prezzi reali (link "venduti" qui sopra) e scopri se gradare ha senso. Niente viene scaricato: i prezzi li inserisci tu, il calcolo resta sul telefono.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div className="cal-field"><label>Costo gradazione (€)</label><input className="cal-input" type="number" inputMode="decimal" placeholder="es. 18" value={worth.cost} onChange={(e) => setWorth((p) => ({ ...p, cost: e.target.value }))} /></div>
+            <div className="cal-field"><label>Valore raw (€)</label><input className="cal-input" type="number" inputMode="decimal" placeholder="es. 30" value={worth.raw} onChange={(e) => setWorth((p) => ({ ...p, raw: e.target.value }))} /></div>
+            <div className="cal-field"><label>Valore al voto stimato · PSA {psa % 1 ? psa.toFixed(1) : psa} (€)</label><input className="cal-input" type="number" inputMode="decimal" placeholder="es. 70" value={worth.graded} onChange={(e) => setWorth((p) => ({ ...p, graded: e.target.value }))} /></div>
+            <div className="cal-field"><label>Se esce un grado sotto (€) · opz.</label><input className="cal-input" type="number" inputMode="decimal" placeholder="es. 45" value={worth.down} onChange={(e) => setWorth((p) => ({ ...p, down: e.target.value }))} /></div>
+          </div>
+          {wReady ? (
+            <div className="cal-ro" style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span className="cal-flag" style={{ color: wVerdict.c, borderColor: "currentColor", fontSize: 13 }}>{wVerdict.t}</span>
+                <span style={{ fontFamily: "'Space Mono',monospace", fontSize: 14, color: "var(--txt)" }}>Guadagno netto <b style={{ color: wVerdict.c }}>{wGain >= 0 ? "+" : ""}{wGain.toFixed(0)}€</b></span>
+              </div>
+              <div className="cal-mini" style={{ marginTop: 6 }}>Da gradata ti serve almeno <b>{wBreakeven.toFixed(0)}€</b> per pareggiare (raw {wRaw.toFixed(0)}€ + gradazione {wCost.toFixed(0)}€).{wGainDown != null && <> Se esce un grado sotto: <b>{wGainDown >= 0 ? "+" : ""}{wGainDown.toFixed(0)}€</b>{wGainDown < 0 ? " — ci rimetti" : ""}.</>}</div>
+              <div className="cal-mini" style={{ marginTop: 4, color: "var(--mut)" }}>⚠️ È una stima e una scommessa: il voto reale può essere più basso del pre-screening e i prezzi variano. Usa il campo "un grado sotto" per pesare il rischio. Non è un consiglio finanziario.</div>
+            </div>
+          ) : (
+            <div className="cal-mini" style={{ marginTop: 8 }}>Inserisci costo, valore raw e valore al voto stimato per vedere se conviene.</div>
+          )}
         </div>
 
         {/* note metodologiche */}
